@@ -16,9 +16,8 @@ justWeather <- function()
   weather[,8] <- weather$season == 2
   weather[,9] <- weather$season == 3 # if all false, season == 4
   weather[,10] <- weather$weathersit == 1
-  weather[,11] <- weather$weathersit == 2
-  weather[,12] <- weather$weathersit == 3 # if all false, weathersit == 4
-  colnames(weather)[7:12] <- c("seasonIsWinter", "seasonIsSpring", "seasonIsSummer", "weathersitIsOne", "weathersitIsTwo", "weathersitIsThree")
+  weather[,11] <- weather$weathersit == 2 # if both false, weathersit == 3
+  colnames(weather)[7:11] <- c("seasonIsWinter", "seasonIsSpring", "seasonIsSummer", "weathersitIsOne", "weathersitIsTwo")
   
   weather
 }
@@ -71,12 +70,12 @@ modelValue <- function(responseVarColName, columnNamesOfPredictors)
 
 # in order, colnamesOfPredictors should be a list of vectors of predictors that: weathersit == 1, weathersit == 2, weathersit == 3, and weathersit == 4
 # syntax: list(c("predictor1ForWeathersitBeing1", "predictor2ForWeathersitBeing1"), ..., c("predictor1ForWeathersitBeing4"))
-modelWeathersit <- function(colnamesOfPredictors)
+modelWeathersit <- function(colnamesOfPredictors) # weathersit == 4 has never happened in the data; we won't even consider it as a possibility when predicting the next day's weathersit
 {
   xMatrices <- list()
   trainingXMatrices <- list()
   testXMatrices <- list()
-  for (i in 1:4)
+  for (i in 1:3)
   {
     xMatrix <- makeXMatrix(colnamesOfPredictors[[i]])
     xMatrices[[i]] <- xMatrix
@@ -87,14 +86,14 @@ modelWeathersit <- function(colnamesOfPredictors)
   trainingSet <- head(day1ExpandedChopped, -1*numberOfRowsToSaveForTestSet)
   testSet <- tail(day1ExpandedChopped, numberOfRowsToSaveForTestSet)
   
-  isWeathersitFourNumeric <- function(weatherRow)
+  isWeathersitThreeNumeric <- function(weatherRow)
   {
-    as.numeric(weatherRow["weathersit"] == 4)
+    as.numeric(weatherRow["weathersit"] == 3)
   }
-  trainingWeathersitIsFour <- apply(trainingSet, 1, isWeathersitFourNumeric)
-  trainingResponseVars <- list(trainingSet[, "weathersitIsOne"], trainingSet[, "weathersitIsTwo"], trainingSet[, "weathersitIsThree"], trainingWeathersitIsFour)
+  trainingWeathersitIsThree <- apply(trainingSet, 1, isWeathersitThreeNumeric)
+  trainingResponseVars <- list(trainingSet[, "weathersitIsOne"], trainingSet[, "weathersitIsTwo"], trainingWeathersitIsThree)
   models <- list()
-  for (i in 1:4)
+  for (i in 1:3)
   {
     models[[i]] <- glm(trainingResponseVars[[i]] ~ trainingXMatrices[[i]], family=binomial)$coefficients
   }
@@ -109,10 +108,9 @@ modelAll <- function()
   modelValue("hum", c("hum"))
   weathersitPredictors <-
     list(
-      c("weathersitIsOne", "weathersitIsTwo", "weathersitIsThree"),
-      c("weathersitIsOne", "weathersitIsTwo", "weathersitIsThree"),
-      c("weathersitIsOne", "weathersitIsTwo", "weathersitIsThree"),
-      c("weathersitIsOne", "weathersitIsTwo", "weathersitIsThree")
+      c("weathersitIsOne", "weathersitIsTwo"),
+      c("weathersitIsOne", "weathersitIsTwo"),
+      c("weathersitIsOne", "weathersitIsTwo")
     )
   modelWeathersit(weathersitPredictors)
 }
