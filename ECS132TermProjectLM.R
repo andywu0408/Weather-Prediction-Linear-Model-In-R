@@ -23,20 +23,22 @@ justWeather <- function()
   weather
 }
 
+day1Expanded <- justWeather()
+
 # Take careful note that this drops the first k rows! You should drop the first k rows of the original matrix afterwards!
-makeXMatrix <- function(originalMatrix, columnsToUseNames) # e.g. makeXMatrix(c(4, 5, 8))
+makeXMatrix <- function(columnsToUseNames) # e.g. makeXMatrix(c(4, 5, 8))
 {
-  originalColnames <- colnames(originalMatrix)
-  xmatrix <- originalMatrix
+  originalColnames <- colnames(day1Expanded)
+  xmatrix <- day1Expanded
   for (i in 1:k) {
     for (j in 1:length(columnsToUseNames))
     {
-      newColumnIndex <- ncol(originalMatrix) + (i-1)*length(columnsToUseNames) + j # we have already added (i-1)*length(columnsToUse) columns
+      newColumnIndex <- ncol(day1Expanded) + (i-1)*length(columnsToUseNames) + j # we have already added (i-1)*length(columnsToUse) columns
       xmatrix <- cbind(xmatrix, 0)
-      for (h in (k+1):nrow(originalMatrix)) # we will throw away the first k rows, because they don't have datapoints from k days prior
+      for (h in (k+1):nrow(day1Expanded)) # we will throw away the first k rows, because they don't have datapoints from k days prior
       {
         iDaysAgo <- h - i
-        xmatrix[h, newColumnIndex] <- originalMatrix[iDaysAgo, columnsToUseNames[j]]
+        xmatrix[h, newColumnIndex] <- day1Expanded[iDaysAgo, columnsToUseNames[j]]
       }
       colnames(xmatrix)[newColumnIndex] <- paste(columnsToUseNames[j], i, "DaysAgo", sep="")
     }
@@ -53,12 +55,12 @@ findValueError <- function(testXMatrix, testResponseVar, model)
   avgError
 }
 
-modelValue <- function(originalMatrix, responseVarColName, columnNamesOfPredictors)
+modelValue <- function(responseVarColName, columnNamesOfPredictors)
 {
-  xMatrix <- makeXMatrix(originalMatrix, columnNamesOfPredictors)
-  originalMatrix <- tail(originalMatrix, -1*k) # get rid of first k rows, since they are not part of the xmatrix
-  trainingSet <- head(originalMatrix, -1*numberOfRowsToSaveForTestSet)
-  testSet <- tail(originalMatrix, numberOfRowsToSaveForTestSet)
+  xMatrix <- makeXMatrix(columnNamesOfPredictors)
+  day1ExpandedChopped <- tail(day1Expanded, -1*k) # get rid of first k rows, since they are not part of the xmatrix
+  trainingSet <- head(day1ExpandedChopped, -1*numberOfRowsToSaveForTestSet)
+  #testSet <- tail(day1ExpandedChopped, numberOfRowsToSaveForTestSet)
   trainingXMatrix <- head(xMatrix, -1*numberOfRowsToSaveForTestSet) # this is time-series data. By choosing the last rows as our test set, we avoid letting the test set influence training
   testXMatrix <- tail(xMatrix, numberOfRowsToSaveForTestSet)
   
@@ -67,41 +69,51 @@ modelValue <- function(originalMatrix, responseVarColName, columnNamesOfPredicto
   model
 }
 
-# in order, colnamesOfPredictors should contain lists of predictors that: weathersit == 1, weathersit == 2, weathersit == 3, and weathersit == 4
-# each list should be a ROW, not a column
-modelWeathersit <- function(originalMatrix, colnamesOfPredictors)
+# in order, colnamesOfPredictors should be a list of vectors of predictors that: weathersit == 1, weathersit == 2, weathersit == 3, and weathersit == 4
+# syntax: list(c("predictor1ForWeathersitBeing1", "predictor2ForWeathersitBeing1"), ..., c("predictor1ForWeathersitBeing4"))
+modelWeathersit <- function(colnamesOfPredictors)
 {
-  doMakeXMatrix <- function(columnNames)
+  xMatrices <- list()
+  trainingXMatrices <- list()
+  testXMatrices <- list()
+  for (i in 1:4)
   {
-    makeXMatrix(originalMatrix, columnNames)
+    xMatrix <- makeXMatrix(colnamesOfPredictors[[i]])
+    xMatrices[[i]] <- xMatrix
+    trainingXMatrices[[i]] <- head(xMatrix, -1*numberOfRowsToSaveForTestSet) # this is time-series data. By choosing the last rows as our test set, we avoid letting the test set influence training
+    testXMatrices[[i]] <- tail(xMatrix, numberOfRowsToSaveForTestSet)
   }
-  doMakeTrainingXMatrices <- function(xMatrix)
-  {
-    head(xMatrix, -1*numberOfRowsToSaveForTestSet)
-  }
-  doMakeTestXMatrices <- function(xMatrix)
-  {
-    tail(xMatrix, numberOfRowsToSaveForTestSet)
-  }
-  xMatrices <- apply(colnamesOfPredictors, c(1,2), makeXMatrix)
-  originalMatrix <- tail(originalMatrix, -1*k)
-  trainingSet <- head(originalMatrix, -1*numberOfRowsToSaveForTestSet)
-  testSet <- tail(originalMatrix, numberOfRowsToSaveForTestSet)
-  trainingXMatrices <- apply(xMatrices, 1, doMakeTrainingXMatrices) # this is time-series data. By choosing the last rows as our test set, we avoid letting the test set influence training
-  testXMatrices <- apply(xMatrices, 1, doMakeTestXMatrices)
+  day1ExpandedChopped <- tail(day1Expanded, -1*k)
+  trainingSet <- head(day1ExpandedChopped, -1*numberOfRowsToSaveForTestSet)
+  testSet <- tail(day1ExpandedChopped, numberOfRowsToSaveForTestSet)
   
   isWeathersitFourNumeric <- function(weatherRow)
   {
-    as.numeric(weatherRow$weathersitIsOne == 0 && weatherRow$weathersitIsTwo == 0 && weatherRow$weathersitIsThree == 0)
+    as.numeric(weatherRow["weathersit"] == 4)
   }
-  weathersitIsFour <- apply(1, isWeathersitFourNumeric)
-  trainingResponseVars <- c(trainingSet[, weathersitIsOne], trainingSet[, weathersitIsTwo], trainingSet[, weathersitIsThree], weathersitIsFour)
-  models <- c()
+  trainingWeathersitIsFour <- apply(trainingSet, 1, isWeathersitFourNumeric)
+  trainingResponseVars <- list(trainingSet[, "weathersitIsOne"], trainingSet[, "weathersitIsTwo"], trainingSet[, "weathersitIsThree"], trainingWeathersitIsFour)
+  models <- list()
   for (i in 1:4)
   {
-    models[i] <- glm(trainingResponseVars[i] ~ trainingXMatrices[i], family=binomial)$coefficients
+    models[[i]] <- glm(trainingResponseVars[[i]] ~ trainingXMatrices[[i]], family=binomial)$coefficients
   }
   models
 }
-  
+
+modelAll <- function()
+{
+  modelValue("windspeed", c("windspeed"))
+  modelValue("temp", c("temp"))
+  modelValue("atemp", c("atemp"))
+  modelValue("hum", c("hum"))
+  weathersitPredictors <-
+    list(
+      c("weathersitIsOne", "weathersitIsTwo", "weathersitIsThree"),
+      c("weathersitIsOne", "weathersitIsTwo", "weathersitIsThree"),
+      c("weathersitIsOne", "weathersitIsTwo", "weathersitIsThree"),
+      c("weathersitIsOne", "weathersitIsTwo", "weathersitIsThree")
+    )
+  modelWeathersit(weathersitPredictors)
+}
   
