@@ -1,23 +1,24 @@
 #install.packages("devtools")
 #install.packages("tidyverse")
-#library(tidyverse)
-#library(devtools)
+library(tidyverse)
+library(devtools)
 #install_github("matloff/regtools")
-#library(regtools)
+library(regtools)
 
-k <- 2
+k <- 1
 numberOfRowsToSaveForTestSet <- 100
 
 justWeather <- function()
 {
   data(day1)
-  weather <- day1[, c(3, 9:13)] # season + variables we want to predict
+  weather <- day1[, c(3, 9:13)] # season, month, + variables we want to predict
   weather[,7] <- weather$season == 1
   weather[,8] <- weather$season == 2
   weather[,9] <- weather$season == 3 # if all false, season == 4
-  weather[,10] <- weather$weathersit == 1
-  weather[,11] <- weather$weathersit == 2 # if both false, weathersit == 3
-  colnames(weather)[7:11] <- c("seasonIsWinter", "seasonIsSpring", "seasonIsSummer", "weathersitIsOne", "weathersitIsTwo")
+  weather[,10] <- day1[,"mnth"]**2
+  weather[,11] <- weather$weathersit == 1
+  weather[,12] <- weather$weathersit == 2 # if both false, weathersit == 3
+  colnames(weather)[7:12] <- c("seasonIsWinter", "seasonIsSpring", "seasonIsSummer", "monthSquared", "weathersitIsOne", "weathersitIsTwo")
   
   weather
 }
@@ -47,11 +48,35 @@ makeXMatrix <- function(columnsToUseNames) # e.g. makeXMatrix(c(4, 5, 8))
   as.matrix(xmatrix)
 }
 
-findValueError <- function(testXMatrix, testResponseVar, model)
+findValueError <- function(testXMatrix, testResponseVar, modelCoefficients)
 {
-  predictions <- testXMatrix %*% model
-  avgError <- 0 # TODO compare to testResponseVar here
-  avgError
+  predictions <- cbind(1, testXMatrix) %*% modelCoefficients
+  avgSquaredError <- mean(abs(predictions - testResponseVar))
+  avgSquaredError
+}
+
+findWeathersitError <- function(testXMatrices, testResponseVar, models)
+{
+  likelihoodsOfEachWeathersit <- list()
+  for (i in 1:3) {
+    testXMatrix <- cbind(1, testXMatrices[[i]])
+    likelihoodsOfEachWeathersit[[i]] <- testXMatrix %*% models[[i]]$coefficients
+  }
+  weathersitProbabilities <- cbind(likelihoodsOfEachWeathersit[[1]], likelihoodsOfEachWeathersit[[2]],likelihoodsOfEachWeathersit[[3]])
+  chooseBestWeathersit <- function(probabilityWeathersitIs)
+  {
+    if (probabilityWeathersitIs[1] >= probabilityWeathersitIs[2] && probabilityWeathersitIs[1] >= probabilityWeathersitIs[3])
+    {
+      return(1)
+    }
+    else if (probabilityWeathersitIs[2] >= probabilityWeathersitIs[3])
+    {
+      return(2)
+    }
+    return(3)
+  }
+  bestWeathersitPrediction <- apply(weathersitProbabilities, 1, chooseBestWeathersit)
+  return(mean(testResponseVar == bestWeathersitPrediction))
 }
 
 modelValue <- function(responseVarColName, columnNamesOfPredictors)
@@ -59,13 +84,18 @@ modelValue <- function(responseVarColName, columnNamesOfPredictors)
   xMatrix <- makeXMatrix(columnNamesOfPredictors)
   day1ExpandedChopped <- tail(day1Expanded, -1*k) # get rid of first k rows, since they are not part of the xmatrix
   trainingSet <- head(day1ExpandedChopped, -1*numberOfRowsToSaveForTestSet)
-  #testSet <- tail(day1ExpandedChopped, numberOfRowsToSaveForTestSet)
+  testSet <- tail(day1ExpandedChopped, numberOfRowsToSaveForTestSet)
   trainingXMatrix <- head(xMatrix, -1*numberOfRowsToSaveForTestSet) # this is time-series data. By choosing the last rows as our test set, we avoid letting the test set influence training
   testXMatrix <- tail(xMatrix, numberOfRowsToSaveForTestSet)
   
   trainingResponseVar <- trainingSet[,responseVarColName]
-  model <- lm(trainingResponseVar ~ trainingXMatrix)$coefficients
-  model
+  model <- lm(trainingResponseVar ~ trainingXMatrix)
+  betaHat <- model$coefficients
+  print(paste("AdjRSquared:", summary(model)$adj.r.squared))
+  print(paste("Average Error:", findValueError(testXMatrix, testSet[, responseVarColName], betaHat)))
+  
+  
+  #model
 }
 
 # in order, colnamesOfPredictors should be a list of vectors of predictors that: weathersit == 1, weathersit == 2, weathersit == 3, and weathersit == 4
@@ -95,23 +125,29 @@ modelWeathersit <- function(colnamesOfPredictors) # weathersit == 4 has never ha
   models <- list()
   for (i in 1:3)
   {
-    models[[i]] <- glm(trainingResponseVars[[i]] ~ trainingXMatrices[[i]], family=binomial)$coefficients
+    models[[i]] <- glm(trainingResponseVars[[i]] ~ trainingXMatrices[[i]], family=binomial)
+    #print(summary(models[[i]]))
   }
-  models
+  testResponseVars <- testSet[, "weathersit"]
+  findWeathersitError(testXMatrices, testResponseVars, models)
 }
 
 modelAll <- function()
 {
-  modelValue("windspeed", c("windspeed"))
+  print("windspeed:")
+  modelValue("windspeed", c("windspeed"))#, "weathersitIsOne", "weathersitIsTwo", "monthSquared"))
+  print("temp:")
   modelValue("temp", c("temp"))
+  print("atemp:")
   modelValue("atemp", c("atemp"))
+  print("hum:")
   modelValue("hum", c("hum"))
   weathersitPredictors <-
     list(
-      c("weathersitIsOne", "weathersitIsTwo"),
-      c("weathersitIsOne", "weathersitIsTwo"),
+      c("weathersitIsOne"),#, "weathersitIsTwo"),
+      c("weathersitIsOne"),#, "weathersitIsTwo"),
       c("weathersitIsOne", "weathersitIsTwo")
     )
-  modelWeathersit(weathersitPredictors)
+  paste("Proportion of time we predict weathersit correctly:", modelWeathersit(weathersitPredictors))
 }
   
